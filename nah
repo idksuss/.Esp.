@@ -7,7 +7,7 @@ local camera = workspace.CurrentCamera
 local esp = {
     -- settings
     enabled = false,
-    teamcheck = true,
+    teamcheck = false,
     visiblecheck = false,
     outlines = true,
     limitdistance = true,
