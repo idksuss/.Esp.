@@ -97,6 +97,10 @@ function esp:draw(a, b)
     local instance = Drawing.new(a)
     if type(b) == 'table' then
         for property, value in next, b do
+            -- Ensure NumSides is only applied to Circles
+            if property == "NumSides" and a ~= "Circle" then
+                continue -- Skip invalid property
+            end
             instance[property] = value
         end
     end
