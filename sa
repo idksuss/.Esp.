@@ -3,11 +3,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local localPlayer = Players.LocalPlayer
-
-local targetPlayer = nil
-local isLeftMouseDown = false
-local isRightMouseDown = false
-local autoClickConnection = nil
+local isDrawingSupported = false
+local FOVCircle
 
 -- FOV Circle Settings
 _G.CircleSides = 64 -- Number of sides of the FOV circle.
@@ -22,19 +19,44 @@ _G.AutoClickEnabled = false  -- Enable/Disable auto-click (right mouse button)
 _G.LeftClickEnabled = false  -- Enable/Disable single shot (left mouse button)
 _G.LockCameraEnabled = false  -- Enable/Disable camera lock on enemy's head
 
--- Create FOV Circle
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-FOVCircle.Radius = _G.CircleRadius
-FOVCircle.Filled = _G.CircleFilled
-FOVCircle.Color = _G.CircleColor
-FOVCircle.Visible = _G.CircleVisible
-FOVCircle.Transparency = _G.CircleTransparency
-FOVCircle.Thickness = _G.CircleThickness
+-- Check if `Drawing.new()` is supported
+local success, _ = pcall(function() return Drawing.new("Circle") end)
+if success then
+    isDrawingSupported = true
+end
 
--- Ensure NumSides is only applied to a Circle
-if FOVCircle and FOVCircle.ClassName == "Circle" then
+if isDrawingSupported then
+    -- ✅ Use `Drawing.new()` if supported
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    FOVCircle.Radius = _G.CircleRadius
+    FOVCircle.Filled = _G.CircleFilled
+    FOVCircle.Color = _G.CircleColor
+    FOVCircle.Visible = _G.CircleVisible
+    FOVCircle.Transparency = _G.CircleTransparency
+    FOVCircle.Thickness = _G.CircleThickness
     FOVCircle.NumSides = _G.CircleSides
+else
+    -- ❌ `Drawing.new()` NOT Supported → Use GUI instead
+    warn("[INFO] `Drawing.new()` is not supported! Switching to GUI FOV Circle.")
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.ResetOnSpawn = false
+    ScreenGui.Parent = game:GetService("CoreGui") or localPlayer:FindFirstChildOfClass("PlayerGui")
+
+    local CircleFrame = Instance.new("Frame")
+    CircleFrame.Parent = ScreenGui
+    CircleFrame.Size = UDim2.new(0, _G.CircleRadius * 2, 0, _G.CircleRadius * 2)
+    CircleFrame.Position = UDim2.new(0.5, -_G.CircleRadius, 0.5, -_G.CircleRadius)
+    CircleFrame.BackgroundTransparency = _G.CircleTransparency
+    CircleFrame.BackgroundColor3 = _G.CircleColor
+    CircleFrame.Visible = _G.CircleVisible
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(1, 0) -- Makes it a perfect circle
+    UICorner.Parent = CircleFrame
+
+    FOVCircle = CircleFrame
 end
 
 -- Function to check if the lobby UI is visible
@@ -152,16 +174,24 @@ RunService.Heartbeat:Connect(function()
     end
 
     -- Update FOV Circle
-    FOVCircle.Position = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
-    FOVCircle.Radius = _G.CircleRadius
-    FOVCircle.Filled = _G.CircleFilled
-    FOVCircle.Color = _G.CircleColor
-    FOVCircle.Visible = _G.CircleVisible
-    FOVCircle.Transparency = _G.CircleTransparency
-    FOVCircle.Thickness = _G.CircleThickness
+    local mousePosition = UserInputService:GetMouseLocation()
 
-    -- Fix: Ensure NumSides is only applied to Circles
-    if FOVCircle and FOVCircle.ClassName == "Circle" then
+    if isDrawingSupported then
+        -- ✅ Update `Drawing.new()` Circle
+        FOVCircle.Position = mousePosition
+        FOVCircle.Radius = _G.CircleRadius
+        FOVCircle.Filled = _G.CircleFilled
+        FOVCircle.Color = _G.CircleColor
+        FOVCircle.Visible = _G.CircleVisible
+        FOVCircle.Transparency = _G.CircleTransparency
+        FOVCircle.Thickness = _G.CircleThickness
         FOVCircle.NumSides = _G.CircleSides
+    else
+        -- ✅ Update GUI Circle (for unsupported executors)
+        FOVCircle.Size = UDim2.new(0, _G.CircleRadius * 2, 0, _G.CircleRadius * 2)
+        FOVCircle.Position = UDim2.new(0, mousePosition.X - _G.CircleRadius, 0, mousePosition.Y - _G.CircleRadius)
+        FOVCircle.BackgroundTransparency = _G.CircleTransparency
+        FOVCircle.BackgroundColor3 = _G.CircleColor
+        FOVCircle.Visible = _G.CircleVisible
     end
 end)
