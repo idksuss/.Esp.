@@ -1,27 +1,28 @@
-
 local Camera = workspace.CurrentCamera
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 local localPlayer = Players.LocalPlayer
 
 local targetPlayer = nil
 local isLeftMouseDown = false
 local isRightMouseDown = false
 local autoClickConnection = nil
+local touchHeld = false -- For mobile touch support
 
 -- FOV Circle Settings
-_G.CircleSides = 64 -- Number of sides of the FOV circle.
-_G.CircleColor = Color3.fromRGB(255, 255, 255) -- Color of the FOV circle.
-_G.CircleTransparency = 1 -- Transparency of the circle.
-_G.CircleRadius = 100 -- Radius of the FOV circle.
-_G.CircleFilled = false -- Determines if the circle is filled.
-_G.CircleVisible = false -- Determines if the circle is visible.
-_G.CircleThickness = 2 -- Thickness of the circle.
+_G.CircleSides = 64
+_G.CircleColor = Color3.fromRGB(255, 255, 255)
+_G.CircleTransparency = 1
+_G.CircleRadius = 100
+_G.CircleFilled = false
+_G.CircleVisible = false
+_G.CircleThickness = 2
 
-_G.AutoClickEnabled = false  -- Enable/Disable auto-click (right mouse button)
-_G.LeftClickEnabled = false  -- Enable/Disable single shot (left mouse button)
-_G.LockCameraEnabled = false  -- Enable/Disable camera lock on enemy's head
+_G.AutoClickEnabled = false  
+_G.LeftClickEnabled = false  
+_G.LockCameraEnabled = false  
 
 -- Create FOV Circle
 local FOVCircle = Drawing.new("Circle")
@@ -33,7 +34,6 @@ FOVCircle.Visible = _G.CircleVisible
 FOVCircle.Transparency = _G.CircleTransparency
 FOVCircle.Thickness = _G.CircleThickness
 
--- Ensure NumSides is only applied to a Circle
 if FOVCircle and FOVCircle.ClassName == "Circle" then
     FOVCircle.NumSides = _G.CircleSides
 end
@@ -51,11 +51,19 @@ local function isLobbyVisible()
     return false
 end
 
--- Function to get the closest player to the mouse
-local function getClosestPlayerToMouse()
+-- Function to get the closest player to the crosshair/touch input
+local function getClosestPlayer()
     local closestPlayer = nil
     local shortestDistance = math.huge
-    local mousePosition = UserInputService:GetMouseLocation()
+    local inputPosition = UserInputService:GetMouseLocation()
+
+    -- Mobile: Use touch position if available
+    if UserInputService.TouchEnabled then
+        local touchInput = UserInputService:GetLastInputForType(Enum.UserInputType.Touch)
+        if touchInput then
+            inputPosition = Vector2.new(touchInput.Position.X, touchInput.Position.Y)
+        end
+    end
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= localPlayer and player.Character and player.Character:FindFirstChild("Head") then
@@ -64,7 +72,7 @@ local function getClosestPlayerToMouse()
 
             if onScreen then
                 local screenPosition = Vector2.new(headPosition.X, headPosition.Y)
-                local distance = (screenPosition - mousePosition).Magnitude
+                local distance = (screenPosition - inputPosition).Magnitude
 
                 if distance < shortestDistance then
                     closestPlayer = player
@@ -77,23 +85,24 @@ local function getClosestPlayerToMouse()
     return closestPlayer
 end
 
--- Function to lock camera to the closest enemy's head
+-- Function to lock camera to enemy's head (For Silent Aim)
 local function lockCameraToHead()
     if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("Head") then
         local head = targetPlayer.Character.Head
         local headPosition, onScreen = Camera:WorldToViewportPoint(head.Position)
-        
-        -- Check if the enemy is within the FOV circle's radius
-        local mousePosition = UserInputService:GetMouseLocation()
-        local distanceToMouse = (Vector2.new(headPosition.X, headPosition.Y) - mousePosition).Magnitude
-        
-        if distanceToMouse <= _G.CircleRadius then
-            if headPosition.Z > 0 then
-                local cameraPosition = Camera.CFrame.Position
-                Camera.CFrame = CFrame.new(cameraPosition, head.Position)
-            end
+
+        if headPosition.Z > 0 then
+            local cameraPosition = Camera.CFrame.Position
+            Camera.CFrame = CFrame.new(cameraPosition, head.Position)
         end
     end
+end
+
+-- Safe Left Click Using VirtualInputManager
+local function safeLeftClick()
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0) -- Left Click Down
+    task.wait() -- Small delay to prevent spamming
+    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0) -- Left Click Up
 end
 
 -- Start Auto Click Function
@@ -102,9 +111,9 @@ local function startAutoClick()
         autoClickConnection:Disconnect()
     end
     autoClickConnection = RunService.Heartbeat:Connect(function()
-        if isRightMouseDown and _G.AutoClickEnabled then
+        if (isRightMouseDown or touchHeld) and _G.AutoClickEnabled then
             if not isLobbyVisible() then
-                mouse1click()
+                safeLeftClick()
             end
         end
     end)
@@ -117,16 +126,23 @@ local function stopAutoClick()
     end
 end
 
--- Input Detection
+-- Input Detection (PC & Mobile)
 UserInputService.InputBegan:Connect(function(input, isProcessed)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and not isProcessed and _G.LeftClickEnabled then
+    if isProcessed then return end
+
+    -- Left Click (PC) or Tap (Mobile)
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and _G.LeftClickEnabled then
         if not isLeftMouseDown then
             isLeftMouseDown = true
+            touchHeld = true
             if not isLobbyVisible() then
-                mouse1click()
+                safeLeftClick()
             end
         end
-    elseif input.UserInputType == Enum.UserInputType.MouseButton2 and not isProcessed and _G.AutoClickEnabled then
+    end
+
+    -- Right Click (PC)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 and _G.AutoClickEnabled then
         if not isRightMouseDown then
             isRightMouseDown = true
             startAutoClick()
@@ -135,10 +151,13 @@ UserInputService.InputBegan:Connect(function(input, isProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input, isProcessed)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and not isProcessed then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
         isLeftMouseDown = false
-    elseif input.UserInputType == Enum.UserInputType.MouseButton2 and not isProcessed then
+    elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
         isRightMouseDown = false
+        stopAutoClick()
+    elseif input.UserInputType == Enum.UserInputType.Touch then
+        touchHeld = false
         stopAutoClick()
     end
 end)
@@ -146,14 +165,22 @@ end)
 -- Update Loop
 RunService.Heartbeat:Connect(function()
     if not isLobbyVisible() then
-        targetPlayer = getClosestPlayerToMouse()
+        targetPlayer = getClosestPlayer()
         if targetPlayer and _G.LockCameraEnabled then
             lockCameraToHead()
         end
     end
 
     -- Update FOV Circle
-    FOVCircle.Position = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+    local inputPosition = UserInputService:GetMouseLocation()
+    if UserInputService.TouchEnabled then
+        local touchInput = UserInputService:GetLastInputForType(Enum.UserInputType.Touch)
+        if touchInput then
+            inputPosition = Vector2.new(touchInput.Position.X, touchInput.Position.Y)
+        end
+    end
+
+    FOVCircle.Position = inputPosition
     FOVCircle.Radius = _G.CircleRadius
     FOVCircle.Filled = _G.CircleFilled
     FOVCircle.Color = _G.CircleColor
@@ -161,7 +188,7 @@ RunService.Heartbeat:Connect(function()
     FOVCircle.Transparency = _G.CircleTransparency
     FOVCircle.Thickness = _G.CircleThickness
 
-    -- Fix: Ensure NumSides is only applied to Circles
+    -- Ensure NumSides is applied only to Circles
     if FOVCircle and FOVCircle.ClassName == "Circle" then
         FOVCircle.NumSides = _G.CircleSides
     end
